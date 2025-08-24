@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLB Viewer - Local File Loader</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+        }
+        
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .ui-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: 350px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .ui-panel h2 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 18px;
+        }
+        
+        .info-text {
+            margin: 10px 0;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .clicked-element {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .controls {
+            margin-top: 15px;
+        }
+        
+        .control-btn {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            font-size: 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+        
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 1001;
+            text-align: center;
+        }
+        
+        .loading .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .file-input {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .file-input input[type="file"] {
+            margin: 10px 0;
+            padding: 5px;
+        }
+        
+        .console-output {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-width: 500px;
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 1000;
+            border: 1px solid #333;
+        }
+        
+        .console-output .error {
+            color: #ff6b6b;
+        }
+        
+        .console-output .success {
+            color: #00ff00;
+        }
+        
+        .console-output .warning {
+            color: #ffa500;
+        }
+        
+        .error-message {
+            background: rgba(255, 0, 0, 0.1);
+            border: 1px solid #ff0000;
+            color: #ff0000;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        .success-message {
+            background: rgba(0, 255, 0, 0.1);
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        .drag-area {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            margin: 10px 0;
+            transition: all 0.3s ease;
+        }
+        
+        .drag-area.dragover {
+            border-color: #3498db;
+            background: rgba(52, 152, 219, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas id="canvas"></canvas>
+        
+        <div class="ui-panel">
+            <h2>GLB Viewer</h2>
+            <div class="info-text">Load a GLB file to view 3D model</div>
+            
+            <div id="model-info" style="display: none;">
+                <div class="success-message">
+                    <strong>Model Loaded Successfully!</strong>
+                    <div id="model-details"></div>
+                </div>
+            </div>
+            
+            <div id="error-info" style="display: none;">
+                <div class="error-message">
+                    <strong>Error Loading Model</strong>
+                    <div id="error-details"></div>
+                </div>
+            </div>
+            
+            <div id="clicked-info" class="clicked-element" style="display: none;">
+                <strong>Selected Element:</strong>
+                <div id="element-name">None</div>
+                <div id="element-position">Position: None</div>
+            </div>
+            
+            <div class="controls">
+                <button class="control-btn" onclick="resetCamera()">Reset Camera</button>
+                <button class="control-btn" onclick="toggleWireframe()">Toggle Wireframe</button>
+                <button class="control-btn" onclick="createTestCube()">Add Test Cube</button>
+                <button class="control-btn" onclick="clearScene()">Clear Scene</button>
+                <button class="control-btn" onclick="toggleConsole()">Toggle Console</button>
+            </div>
+        </div>
+        
+        <div class="file-input">
+            <h3>Load GLB File</h3>
+            <div class="drag-area" id="dragArea">
+                <p>Drag & drop GLB file here</p>
+                <p>or</p>
+                <input type="file" id="fileInput" accept=".glb,.gltf" onchange="loadFile(event)">
+                <p style="font-size: 12px; margin: 5px 0; color: #666;">
+                    Supported: .glb, .gltf files<br>
+                    Max size: 100MB
+                </p>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <strong>Controls:</strong><br>
+            • Left Click: Select element<br>
+            • Right Click + Drag: Rotate camera<br>
+            • Scroll: Zoom in/out<br>
+            • Middle Click + Drag: Pan camera<br>
+            • Drag & Drop: Load GLB file
+        </div>
+        
+        <div id="loading" class="loading" style="display: none;">
+            <div class="spinner"></div>
+            <div id="loading-text">Loading...</div>
+        </div>
+        
+        <div class="console-output" id="console-output" style="display: none;">
+            <strong>Console Output:</strong><br>
+            <div id="console-content"></div>
+        </div>
+    </div>
+
+    <!-- Three.js and GLTFLoader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // Global variables
+        let scene, camera, renderer, controls;
+        let model, raycaster, mouse;
+        let selectedObject = null;
+        let wireframeMode = false;
+        let clickCount = 0;
+        let consoleVisible = false;
+
+        // Console logging function with different levels
+        function logToConsole(message, level = 'info') {
+            const consoleContent = document.getElementById('console-content');
+            const timestamp = new Date().toLocaleTimeString();
+            const levelClass = level === 'error' ? 'error' : level === 'success' ? 'success' : level === 'warning' ? 'warning' : '';
+            const className = levelClass ? ` class="${levelClass}"` : '';
+            
+            consoleContent.innerHTML += `<div${className}>[${timestamp}] ${message}</div>`;
+            consoleContent.scrollTop = consoleContent.scrollHeight;
+            
+            // Also log to browser console
+            switch(level) {
+                case 'error':
+                    console.error(message);
+                    break;
+                case 'warning':
+                    console.warn(message);
+                    break;
+                case 'success':
+                    console.log('✅', message);
+                    break;
+                default:
+                    console.log(message);
+            }
+        }
+
+        // Show/hide loading screen
+        function showLoading(message = 'Loading...') {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('loading-text').textContent = message;
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        // Show/hide console
+        function toggleConsole() {
+            consoleVisible = !consoleVisible;
+            document.getElementById('console-output').style.display = consoleVisible ? 'block' : 'none';
+        }
+
+        // Initialize the 3D scene
+        function init() {
+            logToConsole('Initializing 3D scene...', 'info');
+            
+            try {
+                // Create scene
+                scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x87ceeb);
+
+                // Create camera
+                camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                camera.position.set(5, 5, 5);
+
+                // Create renderer
+                renderer = new THREE.WebGLRenderer({ 
+                    canvas: document.getElementById('canvas'),
+                    antialias: true,
+                    alpha: true
+                });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.shadowMap.enabled = true;
+                renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                renderer.outputEncoding = THREE.sRGBEncoding;
+
+                // Add lights
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(10, 10, 5);
+                directionalLight.castShadow = true;
+                directionalLight.shadow.mapSize.width = 2048;
+                directionalLight.shadow.mapSize.height = 2048;
+                scene.add(directionalLight);
+
+                // Add point light for better illumination
+                const pointLight = new THREE.PointLight(0xffffff, 0.5, 100);
+                pointLight.position.set(-10, 10, -10);
+                scene.add(pointLight);
+
+                // Add controls
+                controls = new THREE.OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+                controls.enableZoom = true;
+                controls.enablePan = true;
+                controls.enableRotate = true;
+
+                // Setup raycaster for object selection
+                raycaster = new THREE.Raycaster();
+                mouse = new THREE.Vector2();
+
+                // Add event listeners
+                window.addEventListener('resize', onWindowResize);
+                renderer.domElement.addEventListener('click', onMouseClick);
+                renderer.domElement.addEventListener('contextmenu', onRightClick);
+
+                // Setup drag and drop
+                setupDragAndDrop();
+
+                // Create a default test cube
+                createTestCube();
+
+                logToConsole('3D scene initialized successfully', 'success');
+                
+                // Start animation loop
+                animate();
+                
+            } catch (error) {
+                logToConsole(`Failed to initialize 3D scene: ${error.message}`, 'error');
+                showError(`Initialization failed: ${error.message}`);
+            }
+        }
+
+        // Setup drag and drop functionality
+        function setupDragAndDrop() {
+            const dragArea = document.getElementById('dragArea');
+            const container = document.getElementById('container');
+            
+            // Prevent default drag behaviors
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                container.addEventListener(eventName, preventDefaults, false);
+                document.body.addEventListener(eventName, preventDefaults, false);
+            });
+            
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            
+            // Highlight drop area when item is dragged over it
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dragArea.addEventListener(eventName, highlight, false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                dragArea.addEventListener(eventName, unhighlight, false);
+            });
+            
+            function highlight(e) {
+                dragArea.classList.add('dragover');
+            }
+            
+            function unhighlight(e) {
+                dragArea.classList.remove('dragover');
+            }
+            
+            // Handle dropped files
+            container.addEventListener('drop', handleDrop, false);
+            
+            function handleDrop(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                
+                if (files.length > 0) {
+                    const file = files[0];
+                    logToConsole(`File dropped: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`, 'info');
+                    
+                    if (isValidFile(file)) {
+                        loadGLBFromFile(file);
+                    } else {
+                        logToConsole('Invalid file type. Please drop a GLB or GLTF file.', 'error');
+                        showError('Invalid file type. Please drop a GLB or GLTF file.');
+                    }
+                }
+            }
+        }
+
+        // Validate file type and size
+        function isValidFile(file) {
+            const validTypes = ['.glb', '.gltf'];
+            const fileName = file.name.toLowerCase();
+            const isValidType = validTypes.some(type => fileName.endsWith(type));
+            const isValidSize = file.size > 0 && file.size <= 100 * 1024 * 1024; // 100MB limit
+            
+            if (!isValidType) {
+                logToConsole(`Invalid file type: ${file.name}`, 'error');
+                return false;
+            }
+            
+            if (file.size === 0) {
+                logToConsole('File is empty', 'error');
+                return false;
+            }
+            
+            if (file.size > 100 * 1024 * 1024) {
+                logToConsole('File is too large (>100MB)', 'warning');
+                return false;
+            }
+            
+            return true;
+        }
+
+        // Load GLB from file input
+        function loadFile(event) {
+            const file = event.target.files[0];
+            if (file) {
+                logToConsole(`File selected: ${file.name}`, 'info');
+                if (isValidFile(file)) {
+                    loadGLBFromFile(file);
+                } else {
+                    showError('Invalid file. Please select a valid GLB or GLTF file.');
+                }
+            }
+        }
+
+        // Load GLB from file object
+        function loadGLBFromFile(file) {
+            logToConsole(`Starting to load: ${file.name}`, 'info');
+            showLoading(`Loading ${file.name}...`);
+            hideError();
+            hideSuccess();
+            
+            const loader = new THREE.GLTFLoader();
+            const reader = new FileReader();
+            
+            // Add comprehensive error handling for FileReader
+            reader.onerror = function(error) {
+                const errorMsg = `FileReader failed: ${error.target.error || 'Unknown error'}`;
+                logToConsole(errorMsg, 'error');
+                showError(errorMsg);
+                hideLoading();
+            };
+            
+            reader.onabort = function() {
+                logToConsole('File reading was aborted', 'error');
+                showError('File reading was aborted');
+                hideLoading();
+            };
+            
+            reader.onload = function(e) {
+                try {
+                    const arrayBuffer = e.target.result;
+                    logToConsole(`File read successfully (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)} MB)`, 'success');
+                    
+                    // Validate array buffer
+                    if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+                        throw new Error('Array buffer is empty or invalid');
+                    }
+                    
+                    loader.parse(arrayBuffer, '', 
+                        // Success callback
+                        function(gltf) {
+                            try {
+                                logToConsole('GLB parsing successful, processing model...', 'success');
+                                
+                                // Remove existing model
+                                if (model) {
+                                    scene.remove(model);
+                                    logToConsole('Removed previous model', 'info');
+                                }
+                                
+                                model = gltf.scene;
+                                
+                                // Count meshes and materials
+                                let meshCount = 0;
+                                let materialCount = 0;
+                                let vertexCount = 0;
+                                
+                                // Enable shadows and setup for all meshes
+                                model.traverse(function (child) {
+                                    if (child.isMesh) {
+                                        meshCount++;
+                                        child.castShadow = true;
+                                        child.receiveShadow = true;
+                                        
+                                        // Add userData for identification
+                                        child.userData.originalMaterial = child.material.clone();
+                                        child.userData.isSelectable = true;
+                                        
+                                        // Count vertices
+                                        if (child.geometry && child.geometry.attributes.position) {
+                                            vertexCount += child.geometry.attributes.position.count;
+                                        }
+                                        
+                                        // Log mesh details
+                                        logToConsole(`Mesh: ${child.name || 'Unnamed'} - Vertices: ${child.geometry.attributes.position.count}`, 'info');
+                                    }
+                                    if (child.material) {
+                                        materialCount++;
+                                    }
+                                });
+                                
+                                logToConsole(`Model processed: ${meshCount} meshes, ${materialCount} materials, ${vertexCount} total vertices`, 'success');
+                                
+                                // Center and scale the model
+                                const box = new THREE.Box3().setFromObject(model);
+                                const center = box.getCenter(new THREE.Vector3());
+                                const size = box.getSize(new THREE.Vector3());
+                                
+                                const maxDim = Math.max(size.x, size.y, size.z);
+                                const scale = 2 / maxDim;
+                                model.scale.setScalar(scale);
+                                
+                                model.position.sub(center.multiplyScalar(scale));
+                                
+                                scene.add(model);
+                                
+                                // Update model info
+                                updateModelInfo(file.name, meshCount, materialCount, vertexCount, size);
+                                
+                                logToConsole(`✅ GLB model loaded successfully! Size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`, 'success');
+                                showSuccess(`Model loaded successfully: ${file.name}`);
+                                
+                            } catch (processingError) {
+                                const errorMsg = `Failed to process GLB model: ${processingError.message}`;
+                                logToConsole(errorMsg, 'error');
+                                showError(errorMsg);
+                            }
+                            hideLoading();
+                        },
+                        // Progress callback
+                        function(progress) {
+                            if (progress.lengthComputable) {
+                                const percent = Math.round((progress.loaded / progress.total) * 100);
+                                logToConsole(`Loading progress: ${percent}%`, 'info');
+                                showLoading(`Loading ${file.name}... ${percent}%`);
+                            }
+                        },
+                        // Error callback
+                        function(error) {
+                            const errorMsg = `GLB parsing failed: ${error.message || error}`;
+                            logToConsole(errorMsg, 'error');
+                            
+                            // Provide specific error information
+                            if (error.message) {
+                                if (error.message.includes('JSON')) {
+                                    logToConsole('This might not be a valid GLB/GLTF file', 'error');
+                                } else if (error.message.includes('buffer')) {
+                                    logToConsole('File might be corrupted or incomplete', 'error');
+                                } else if (error.message.includes('texture')) {
+                                    logToConsole('Texture loading failed', 'error');
+                                }
+                            }
+                            
+                            showError(errorMsg);
+                            hideLoading();
+                        }
+                    );
+                    
+                } catch (parseError) {
+                    const errorMsg = `Failed to parse file data: ${parseError.message}`;
+                    logToConsole(errorMsg, 'error');
+                    showError(errorMsg);
+                    hideLoading();
+                }
+            };
+            
+            // Start reading the file
+            try {
+                reader.readAsArrayBuffer(file);
+                logToConsole('Started reading file...', 'info');
+            } catch (readError) {
+                const errorMsg = `Failed to start file reading: ${readError.message}`;
+                logToConsole(errorMsg, 'error');
+                showError(errorMsg);
+                hideLoading();
+            }
+        }
+
+        // Update model information display
+        function updateModelInfo(fileName, meshCount, materialCount, vertexCount, size) {
+            const modelInfo = document.getElementById('model-info');
+            const modelDetails = document.getElementById('model-details');
+            
+            modelDetails.innerHTML = `
+                <strong>File:</strong> ${fileName}<br>
+                <strong>Meshes:</strong> ${meshCount}<br>
+                <strong>Materials:</strong> ${materialCount}<br>
+                <strong>Vertices:</strong> ${vertexCount.toLocaleString()}<br>
+                <strong>Size:</strong> ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}
+            `;
+            
+            modelInfo.style.display = 'block';
+        }
+
+        // Show/hide error messages
+        function showError(message) {
+            const errorInfo = document.getElementById('error-info');
+            const errorDetails = document.getElementById('error-details');
+            errorDetails.textContent = message;
+            errorInfo.style.display = 'block';
+        }
+
+        function hideError() {
+            document.getElementById('error-info').style.display = 'none';
+        }
+
+        function showSuccess(message) {
+            logToConsole(message, 'success');
+        }
+
+        function hideSuccess() {
+            document.getElementById('model-info').style.display = 'none';
+        }
+
+        // Create a test cube
+        function createTestCube() {
+            logToConsole('Creating test cube...', 'info');
+            
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const material = new THREE.MeshLambertMaterial({ color: 0x00ff00 });
+            const cube = new THREE.Mesh(geometry, material);
+            
+            cube.position.set(0, 0, 0);
+            cube.castShadow = true;
+            cube.receiveShadow = true;
+            cube.name = 'TestCube';
+            cube.userData.originalMaterial = material.clone();
+            cube.userData.isSelectable = true;
+            
+            scene.add(cube);
+            logToConsole('Test cube created', 'success');
+        }
+
+        // Clear the scene
+        function clearScene() {
+            logToConsole('Clearing scene...', 'info');
+            
+            // Remove all objects except lights and camera
+            const objectsToRemove = [];
+            scene.traverse(function(child) {
+                if (child.isMesh) {
+                    objectsToRemove.push(child);
+                }
+            });
+            
+            objectsToRemove.forEach(obj => scene.remove(obj));
+            
+            // Reset variables
+            model = null;
+            selectedObject = null;
+            
+            // Hide info panels
+            hideError();
+            hideSuccess();
+            hideSelectionUI();
+            
+            logToConsole('Scene cleared', 'success');
+        }
+
+        // Handle mouse click for object selection
+        function onMouseClick(event) {
+            event.preventDefault();
+            
+            // Calculate mouse position in normalized device coordinates
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Update the picking ray with the camera and mouse position
+            raycaster.setFromCamera(mouse, camera);
+
+            // Calculate objects intersecting the picking ray
+            const intersects = raycaster.intersectObjects(scene.children, true);
+
+            if (intersects.length > 0) {
+                const selectedMesh = intersects[0].object;
+                
+                // Check if the object is selectable
+                if (selectedMesh.userData.isSelectable) {
+                    // Deselect previous object
+                    if (selectedObject) {
+                        selectedObject.material = selectedObject.userData.originalMaterial;
+                    }
+                    
+                    // Select new object
+                    selectedObject = selectedMesh;
+                    
+                    // Highlight selected object
+                    const highlightMaterial = selectedMesh.material.clone();
+                    highlightMaterial.emissive = new THREE.Color(0x444444);
+                    selectedMesh.material = highlightMaterial;
+                    
+                    // Update UI
+                    updateSelectionUI(selectedMesh, intersects[0].point);
+                    
+                    clickCount++;
+                    logToConsole(`Selected object: ${selectedMesh.name || 'Unnamed mesh'}`, 'info');
+                }
+            } else {
+                // Deselect if clicking on empty space
+                if (selectedObject) {
+                    selectedObject.material = selectedObject.userData.originalMaterial;
+                    selectedObject = null;
+                    hideSelectionUI();
+                }
+            }
+        }
+
+        // Handle right click (prevent context menu)
+        function onRightClick(event) {
+            event.preventDefault();
+        }
+
+        // Update selection UI
+        function updateSelectionUI(mesh, point) {
+            const infoDiv = document.getElementById('clicked-info');
+            const nameDiv = document.getElementById('element-name');
+            const positionDiv = document.getElementById('element-position');
+            
+            nameDiv.textContent = mesh.name || 'Unnamed Mesh';
+            positionDiv.textContent = `Position: (${point.x.toFixed(2)}, ${point.y.toFixed(2)}, ${point.z.toFixed(2)})`;
+            
+            infoDiv.style.display = 'block';
+        }
+
+        // Hide selection UI
+        function hideSelectionUI() {
+            document.getElementById('clicked-info').style.display = 'none';
+        }
+
+        // Control functions
+        function resetCamera() {
+            camera.position.set(5, 5, 5);
+            controls.reset();
+            logToConsole('Camera reset', 'info');
+        }
+
+        function toggleWireframe() {
+            wireframeMode = !wireframeMode;
+            
+            scene.traverse(function (child) {
+                if (child.isMesh) {
+                    child.material.wireframe = wireframeMode;
+                }
+            });
+            
+            logToConsole(`Wireframe mode: ${wireframeMode ? 'ON' : 'OFF'}`, 'info');
+        }
+
+        // Window resize handler
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Initialize when page loads
+        window.addEventListener('load', function() {
+            logToConsole('Page loaded, initializing GLB viewer...', 'info');
+            init();
+        });
+    </script>
+</body>
+</html>
