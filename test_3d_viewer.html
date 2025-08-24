@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D GLB Viewer - Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+        }
+        
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .ui-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .ui-panel h2 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 18px;
+        }
+        
+        .info-text {
+            margin: 10px 0;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .clicked-element {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .controls {
+            margin-top: 15px;
+        }
+        
+        .control-btn {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            font-size: 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+        
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 1001;
+        }
+        
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            z-index: 1000;
+        }
+        
+        .file-input {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 1000;
+        }
+        
+        .console-output {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            max-width: 400px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas id="canvas"></canvas>
+        
+        <div class="ui-panel">
+            <h2>3D GLB Viewer - Test</h2>
+            <div class="info-text">Click on any 3D element to select it</div>
+            <div id="clicked-info" class="clicked-element" style="display: none;">
+                <strong>Selected Element:</strong>
+                <div id="element-name">None</div>
+                <div id="element-position">Position: None</div>
+            </div>
+            <div class="controls">
+                <button class="control-btn" onclick="resetCamera()">Reset Camera</button>
+                <button class="control-btn" onclick="toggleWireframe()">Toggle Wireframe</button>
+                <button class="control-btn" onclick="createTestCube()">Add Test Cube</button>
+            </div>
+        </div>
+        
+        <div class="file-input">
+            <h3>Load GLB File</h3>
+            <input type="file" id="fileInput" accept=".glb,.gltf" onchange="loadFile(event)">
+            <p style="font-size: 12px; margin: 5px 0;">Or drag & drop a GLB file here</p>
+        </div>
+        
+        <div class="instructions">
+            <strong>Controls:</strong><br>
+            • Left Click: Select element<br>
+            • Right Click + Drag: Rotate camera<br>
+            • Scroll: Zoom in/out<br>
+            • Middle Click + Drag: Pan camera
+        </div>
+        
+        <div id="loading" class="loading">
+            Loading 3D viewer...
+        </div>
+        
+        <div class="console-output" id="console-output">
+            <strong>Console Output:</strong><br>
+            <div id="console-content"></div>
+        </div>
+    </div>
+
+    <!-- Three.js and GLTFLoader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // Global variables
+        let scene, camera, renderer, controls;
+        let model, raycaster, mouse;
+        let selectedObject = null;
+        let wireframeMode = false;
+        let clickCount = 0;
+
+        // Console logging function
+        function logToConsole(message) {
+            const consoleContent = document.getElementById('console-content');
+            const timestamp = new Date().toLocaleTimeString();
+            consoleContent.innerHTML += `[${timestamp}] ${message}<br>`;
+            consoleContent.scrollTop = consoleContent.scrollHeight;
+            console.log(message);
+        }
+
+        // Initialize the 3D scene
+        function init() {
+            logToConsole('Initializing 3D scene...');
+            
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb);
+
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(5, 5, 5);
+
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ 
+                canvas: document.getElementById('canvas'),
+                antialias: true 
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            // Add lights
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 10, 5);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+
+            // Add controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // Setup raycaster for object selection
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // Add event listeners
+            window.addEventListener('resize', onWindowResize);
+            renderer.domElement.addEventListener('click', onMouseClick);
+            renderer.domElement.addEventListener('contextmenu', onRightClick);
+
+            // Setup drag and drop
+            setupDragAndDrop();
+
+            // Create a default test cube
+            createTestCube();
+
+            // Hide loading screen
+            document.getElementById('loading').style.display = 'none';
+            
+            logToConsole('3D scene initialized successfully');
+            
+            // Start animation loop
+            animate();
+        }
+
+        // Setup drag and drop functionality
+        function setupDragAndDrop() {
+            const container = document.getElementById('container');
+            
+            container.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+            
+            container.addEventListener('drop', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    const file = files[0];
+                    if (file.name.toLowerCase().endsWith('.glb') || file.name.toLowerCase().endsWith('.gltf')) {
+                        loadGLBFromFile(file);
+                    } else {
+                        logToConsole('Please drop a GLB or GLTF file');
+                    }
+                }
+            });
+        }
+
+        // Load GLB from file input
+        function loadFile(event) {
+            const file = event.target.files[0];
+            if (file) {
+                loadGLBFromFile(file);
+            }
+        }
+
+        // Load GLB from file object
+        function loadGLBFromFile(file) {
+            logToConsole(`Loading file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+            
+            // Check file size
+            if (file.size === 0) {
+                logToConsole('ERROR: File is empty!');
+                return;
+            }
+            
+            if (file.size > 100 * 1024 * 1024) { // 100MB limit
+                logToConsole('WARNING: File is very large (>100MB), may take time to load');
+            }
+            
+            const loader = new THREE.GLTFLoader();
+            const reader = new FileReader();
+            
+            // Add error handling for FileReader
+            reader.onerror = function(error) {
+                logToConsole(`ERROR: FileReader failed to read file: ${error.target.error}`);
+                console.error('FileReader error:', error);
+            };
+            
+            reader.onload = function(e) {
+                try {
+                    const arrayBuffer = e.target.result;
+                    logToConsole(`File read successfully, parsing GLB data...`);
+                    
+                    loader.parse(arrayBuffer, '', 
+                        // Success callback
+                        function(gltf) {
+                            try {
+                                logToConsole('GLB parsing successful, processing model...');
+                                
+                                // Remove existing model
+                                if (model) {
+                                    scene.remove(model);
+                                    logToConsole('Removed previous model');
+                                }
+                                
+                                model = gltf.scene;
+                                
+                                // Count meshes and materials
+                                let meshCount = 0;
+                                let materialCount = 0;
+                                
+                                // Enable shadows for all meshes
+                                model.traverse(function (child) {
+                                    if (child.isMesh) {
+                                        meshCount++;
+                                        child.castShadow = true;
+                                        child.receiveShadow = true;
+                                        
+                                        // Add userData for identification
+                                        child.userData.originalMaterial = child.material.clone();
+                                        child.userData.isSelectable = true;
+                                        
+                                        // Log mesh details
+                                        logToConsole(`Mesh: ${child.name || 'Unnamed'} - Vertices: ${child.geometry.attributes.position.count}`);
+                                    }
+                                    if (child.material) {
+                                        materialCount++;
+                                    }
+                                });
+                                
+                                logToConsole(`Model processed: ${meshCount} meshes, ${materialCount} materials`);
+                                
+                                // Center and scale the model
+                                const box = new THREE.Box3().setFromObject(model);
+                                const center = box.getCenter(new THREE.Vector3());
+                                const size = box.getSize(new THREE.Vector3());
+                                
+                                const maxDim = Math.max(size.x, size.y, size.z);
+                                const scale = 2 / maxDim;
+                                model.scale.setScalar(scale);
+                                
+                                model.position.sub(center.multiplyScalar(scale));
+                                
+                                scene.add(model);
+                                
+                                logToConsole(`✅ GLB model loaded successfully! Size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
+                                
+                            } catch (processingError) {
+                                logToConsole(`ERROR: Failed to process GLB model: ${processingError.message}`);
+                                console.error('Model processing error:', processingError);
+                            }
+                        },
+                        // Progress callback
+                        function(progress) {
+                            if (progress.lengthComputable) {
+                                const percent = Math.round((progress.loaded / progress.total) * 100);
+                                logToConsole(`Loading progress: ${percent}%`);
+                            }
+                        },
+                        // Error callback
+                        function(error) {
+                            logToConsole(`❌ ERROR: GLB parsing failed: ${error.message || error}`);
+                            console.error('GLB parsing error:', error);
+                            
+                            // Try to provide more specific error information
+                            if (error.message) {
+                                if (error.message.includes('JSON')) {
+                                    logToConsole('This might not be a valid GLB/GLTF file');
+                                } else if (error.message.includes('buffer')) {
+                                    logToConsole('File might be corrupted or incomplete');
+                                } else if (error.message.includes('texture')) {
+                                    logToConsole('Texture loading failed');
+                                }
+                            }
+                        }
+                    );
+                    
+                } catch (parseError) {
+                    logToConsole(`❌ ERROR: Failed to parse file data: ${parseError.message}`);
+                    console.error('Parse error:', parseError);
+                }
+            };
+            
+            // Start reading the file
+            try {
+                reader.readAsArrayBuffer(file);
+                logToConsole('Started reading file...');
+            } catch (readError) {
+                logToConsole(`❌ ERROR: Failed to start file reading: ${readError.message}`);
+                console.error('File read error:', readError);
+            }
+        }
+
+        // Create a test cube
+        function createTestCube() {
+            logToConsole('Creating test cube...');
+            
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const material = new THREE.MeshLambertMaterial({ color: 0x00ff00 });
+            const cube = new THREE.Mesh(geometry, material);
+            
+            cube.position.set(0, 0, 0);
+            cube.castShadow = true;
+            cube.receiveShadow = true;
+            cube.name = 'TestCube';
+            cube.userData.originalMaterial = material.clone();
+            cube.userData.isSelectable = true;
+            
+            scene.add(cube);
+            logToConsole('Test cube created');
+        }
+
+        // Handle mouse click for object selection
+        function onMouseClick(event) {
+            event.preventDefault();
+            
+            // Calculate mouse position in normalized device coordinates
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Update the picking ray with the camera and mouse position
+            raycaster.setFromCamera(mouse, camera);
+
+            // Calculate objects intersecting the picking ray
+            const intersects = raycaster.intersectObjects(scene.children, true);
+
+            if (intersects.length > 0) {
+                const selectedMesh = intersects[0].object;
+                
+                // Check if the object is selectable
+                if (selectedMesh.userData.isSelectable) {
+                    // Deselect previous object
+                    if (selectedObject) {
+                        selectedObject.material = selectedObject.userData.originalMaterial;
+                    }
+                    
+                    // Select new object
+                    selectedObject = selectedMesh;
+                    
+                    // Highlight selected object
+                    const highlightMaterial = selectedMesh.material.clone();
+                    highlightMaterial.emissive = new THREE.Color(0x444444);
+                    selectedMesh.material = highlightMaterial;
+                    
+                    // Update UI
+                    updateSelectionUI(selectedMesh, intersects[0].point);
+                    
+                    clickCount++;
+                    logToConsole(`Selected object: ${selectedMesh.name || 'Unnamed mesh'}`);
+                }
+            } else {
+                // Deselect if clicking on empty space
+                if (selectedObject) {
+                    selectedObject.material = selectedObject.userData.originalMaterial;
+                    selectedObject = null;
+                    hideSelectionUI();
+                }
+            }
+        }
+
+        // Handle right click (prevent context menu)
+        function onRightClick(event) {
+            event.preventDefault();
+        }
+
+        // Update selection UI
+        function updateSelectionUI(mesh, point) {
+            const infoDiv = document.getElementById('clicked-info');
+            const nameDiv = document.getElementById('element-name');
+            const positionDiv = document.getElementById('element-position');
+            
+            nameDiv.textContent = mesh.name || 'Unnamed Mesh';
+            positionDiv.textContent = `Position: (${point.x.toFixed(2)}, ${point.y.toFixed(2)}, ${point.z.toFixed(2)})`;
+            
+            infoDiv.style.display = 'block';
+        }
+
+        // Hide selection UI
+        function hideSelectionUI() {
+            document.getElementById('clicked-info').style.display = 'none';
+        }
+
+        // Control functions
+        function resetCamera() {
+            camera.position.set(5, 5, 5);
+            controls.reset();
+            logToConsole('Camera reset');
+        }
+
+        function toggleWireframe() {
+            wireframeMode = !wireframeMode;
+            
+            scene.traverse(function (child) {
+                if (child.isMesh) {
+                    child.material.wireframe = wireframeMode;
+                }
+            });
+            
+            logToConsole(`Wireframe mode: ${wireframeMode ? 'ON' : 'OFF'}`);
+        }
+
+        // Window resize handler
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Initialize when page loads
+        window.addEventListener('load', function() {
+            logToConsole('Page loaded, initializing 3D viewer...');
+            init();
+        });
+    </script>
+</body>
+</html>
